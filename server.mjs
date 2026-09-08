@@ -10,6 +10,7 @@
 //   CLAUDE_DIR  `.claude` の場所（既定 ~/.claude）
 
 import { createServer } from 'node:http'
+import { spawn } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { watch } from 'node:fs'
 import { extname, join, resolve, sep } from 'node:path'
@@ -407,9 +408,33 @@ async function listenOnFreePort() {
   throw new Error(`${BASE_PORT} から ${PORT_ATTEMPTS} 個のポートがすべて埋まっています`)
 }
 
+// `--open` が付いていたらブラウザで開く。ポートは埋まっていればずれるので、URL を
+// 知っているこちら側で開く（起動用のバッチが URL を組み立てると実際のポートと食い違う）。
+function openInBrowser(url) {
+  const [command, args] =
+    process.platform === 'win32'
+      ? // start は cmd の内部コマンド。第 1 引数はウィンドウタイトルで、URL に & が
+        // 入っていても引数と誤解されないよう空文字を置く。
+        ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]]
+  try {
+    const child = spawn(command, args, { stdio: 'ignore', detached: true })
+    // 開けなかったことを黙らせない。URL は既に画面へ出してあるので手で開ける。
+    child.on('error', (err) => console.error(`[open] ブラウザを開けませんでした: ${err.message}`))
+    child.unref()
+  } catch (err) {
+    console.error(`[open] ブラウザを開けませんでした: ${err.message}`)
+  }
+}
+
 const port = await listenOnFreePort()
 allowedOrigins = new Set([`http://${HOST}:${port}`, `http://localhost:${port}`])
 startWatching()
 startWatchAudit()
-console.log(`claudecode-task-viewer  http://${HOST}:${port}`)
+const url = `http://${HOST}:${port}`
+console.log(`claudecode-task-viewer  ${url}`)
 console.log(`  タスクの置き場所: ${TASKS_ROOT}`)
+console.log('  終了するには Ctrl+C を押してください')
+if (process.argv.includes('--open')) openInBrowser(url)

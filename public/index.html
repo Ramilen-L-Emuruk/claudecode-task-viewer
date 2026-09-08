@@ -66,6 +66,8 @@
     background: var(--bg); color: var(--fg-dim); border: 1px solid var(--line); border-radius: 999px;
   }
   #filters button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #filters .sort { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--fg-dim); }
+  #filters .sort select { font: inherit; font-size: 12px; padding: 1px 4px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; }
 
   #tasks { flex: 1; overflow: auto; margin: 0; padding: 0; list-style: none; }
   #tasks li {
@@ -136,8 +138,11 @@
 </div>
 
 <script>
-const STATUSES = ['all', 'pending', 'in_progress', 'completed']
+// 'open'（未完了）は pending と in_progress をまとめたもの。完了は積み上がっていくので、
+// 実際に見たいのはたいてい「完了以外」になる。
+const STATUSES = ['all', 'open', 'pending', 'in_progress', 'completed']
 const KNOWN_STATUSES = ['pending', 'in_progress', 'completed']
+const OPEN_STATUSES = ['pending', 'in_progress']
 
 // SSE は接続が切れても自動で再接続を続け、readyState は CLOSED にならない。つまり
 // readyState では切断を判定できない。サーバーが送ってくる生存確認（ping）が途切れた
@@ -150,6 +155,7 @@ const SSE_WATCHDOG_INTERVAL_MS = 5000
 const FETCH_TIMEOUT_MS = 15000
 const STATUS_LABEL = {
   all: 'すべて',
+  open: '未完了',
   pending: '未着手',
   in_progress: '進行中',
   completed: '完了',
@@ -171,7 +177,10 @@ const el = {
 const state = {
   lists: [],
   currentList: localStorage.getItem('list') || null,
-  filter: localStorage.getItem('filter') || 'all',
+  // 既定は「未完了」。完了は積み上がっていくので、開いた直後に見たいのはたいてい残り。
+  filter: localStorage.getItem('filter') || 'open',
+  // 'id'（番号順）または 'dependency'（依存順）。
+  sort: localStorage.getItem('sort') || 'id',
   tasks: [],
   // いま開いているリストで、タスクとして認識できなかったファイルの数。
   unrecognized: 0,
@@ -249,6 +258,46 @@ function blockersOf(task, byId) {
   return task.blockedBy.filter((id) => (byId.get(id)?.status ?? 'unknown') !== 'completed')
 }
 
+// ID は通常は数値だが、Claude Code の実装上は文字列。数値どうしは数値として比べ、
+// 数値でないものは後ろへ回す（サーバー側の並びと同じ規則）。
+function compareIds(a, b) {
+  const na = Number(a)
+  const nb = Number(b)
+  const aNum = Number.isInteger(na)
+  const bNum = Number.isInteger(nb)
+  if (aNum && bNum) return na - nb
+  if (aNum) return -1
+  if (bNum) return 1
+  return a < b ? -1 : a > b ? 1 : 0
+}
+
+// 依存順に並べる。blockedBy に挙げた相手を自分より前に置くので、いま着手できるものが
+// 上へ来る。同じ段のものは ID 順。
+function sortByDependency(tasks) {
+  const remaining = new Map(tasks.map((task) => [task.id, task]))
+  const ordered = []
+
+  while (remaining.size > 0) {
+    const ready = [...remaining.values()]
+      // 見るのはこのリストに残っている相手だけ。リストの外にある ID は解決できないので
+      // 無視する（消えたタスクを待ち続けて永久に解けなくなるのを防ぐ）。
+      .filter((task) => (task.blockedBy ?? []).every((id) => !remaining.has(id)))
+      .sort((a, b) => compareIds(a.id, b.id))
+
+    if (ready.length === 0) {
+      // 循環していて解けない。残りを ID 順で後ろへ付ける —— **落とさない**ことを
+      // 優先する。並びが崩れているだけなら見れば分かるが、消えたタスクは追えない。
+      ordered.push(...[...remaining.values()].sort((a, b) => compareIds(a.id, b.id)))
+      break
+    }
+    for (const task of ready) {
+      ordered.push(task)
+      remaining.delete(task.id)
+    }
+  }
+  return ordered
+}
+
 function renderLists() {
   el.listSelect.replaceChildren()
   for (const list of state.lists) {
@@ -279,6 +328,7 @@ function renderFilters() {
   el.filters.replaceChildren()
   const counts = { all: state.tasks.length }
   for (const task of state.tasks) counts[task.status] = (counts[task.status] ?? 0) + 1
+  counts.open = OPEN_STATUSES.reduce((sum, status) => sum + (counts[status] ?? 0), 0)
   // 読めないタスクは status を持たないため、どの状態フィルタにも入らない。専用の
   // ボタンを出さないと内訳の合計が「すべて」と合わず、消えた分の行方が分からなくなる。
   const unreadable = state.tasks.filter((task) => task.readError).length
@@ -314,15 +364,41 @@ function renderFilters() {
     })
     el.filters.append(button)
   }
+
+  const sort = document.createElement('label')
+  sort.className = 'sort'
+  sort.append(document.createTextNode('並び'))
+  const select = document.createElement('select')
+  for (const [value, label] of [
+    ['id', '番号順'],
+    ['dependency', '依存順'],
+  ]) {
+    const option = document.createElement('option')
+    option.value = value
+    option.textContent = label
+    select.append(option)
+  }
+  select.value = state.sort
+  select.addEventListener('change', () => {
+    state.sort = select.value
+    localStorage.setItem('sort', state.sort)
+    renderTasks()
+  })
+  sort.append(select)
+  el.filters.append(sort)
 }
 
 function renderTasks() {
   const byId = new Map(state.tasks.map((t) => [t.id, t]))
   el.tasks.replaceChildren()
-  const shown = state.tasks.filter((task) => {
+  // 並び替えはフィルタの前に行う。フィルタしてから解くと、絞り込みで消えた依存が
+  // 見えず、順序が変わってしまう。
+  const ordered = state.sort === 'dependency' ? sortByDependency(state.tasks) : state.tasks
+  const shown = ordered.filter((task) => {
     if (state.filter === 'all') return true
     if (state.filter === 'unreadable') return Boolean(task.readError)
     if (state.filter === 'other') return !task.readError && !KNOWN_STATUSES.includes(task.status)
+    if (state.filter === 'open') return !task.readError && OPEN_STATUSES.includes(task.status)
     return !task.readError && task.status === state.filter
   })
   if (shown.length === 0) {
@@ -360,7 +436,7 @@ function renderTasks() {
       li.classList.add('blocked')
       const badge = document.createElement('span')
       badge.className = 'badge'
-      badge.textContent = `待ち #${blockers.join(' #')}`
+      badge.textContent = `blocked by #${blockers.join(' #')}`
       li.append(badge)
     }
 
@@ -412,7 +488,12 @@ function renderDetail() {
   }
   el.detail.append(meta)
 
-  for (const [label, ids] of [['これを待っている', task.blocks], ['これが待っているもの', task.blockedBy]]) {
+  // 見出しはフィールド名をそのまま出す。Claude Code の TaskList も `blocked by` と
+  // 表示するので用語が揃い、JSON を直接見たときにも対応が取れる。
+  for (const [label, ids] of [
+    ['blocks', task.blocks],
+    ['blocked by', task.blockedBy],
+  ]) {
     if (!ids.length) continue
     const div = document.createElement('div')
     div.className = 'deps'

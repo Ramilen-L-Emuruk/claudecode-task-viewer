@@ -5,7 +5,8 @@
   "description": "Claude Code のタスクリストをブラウザで読むローカルビューア",
   "type": "module",
   "scripts": {
-    "start": "node server.mjs"
+    "start": "node server.mjs",
+    "start:open": "node server.mjs --open"
   },
   "engines": {
     "node": ">=18"
