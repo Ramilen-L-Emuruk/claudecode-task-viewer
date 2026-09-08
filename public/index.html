@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Code タスクビューア</title>
+<!-- アイコンは持たない。指定しないとブラウザが /favicon.ico を要求し、404 がコンソールに残る。 -->
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --bg-sub: #f5f5f4;
+    --bg-hover: #ebebe9;
+    --line: #d8d8d4;
+    --fg: #1c1c1a;
+    --fg-dim: #6b6b66;
+    --accent: #2563eb;
+    --pending: #8b8b85;
+    --progress: #2563eb;
+    --completed: #16a34a;
+    --broken: #dc2626;
+    --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a;
+      --bg-sub: #262624;
+      --bg-hover: #333331;
+      --line: #3d3d3a;
+      --fg: #ededea;
+      --fg-dim: #9a9a94;
+      --accent: #7aa2f7;
+      --pending: #8b8b85;
+      --progress: #7aa2f7;
+      --completed: #4ade80;
+      --broken: #f87171;
+      --warn: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column;
+    font: 14px/1.6 system-ui, "Segoe UI", "Hiragino Kaku Gothic ProN", "Yu Gothic UI", sans-serif;
+    background: var(--bg); color: var(--fg);
+  }
+
+  header.top {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 8px 14px; border-bottom: 1px solid var(--line); background: var(--bg-sub);
+  }
+  header.top h1 { font-size: 14px; font-weight: 600; margin: 0; }
+  header.top select { font: inherit; padding: 3px 6px; background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; }
+  .spacer { flex: 1; }
+  .mode { font-size: 12px; color: var(--fg-dim); }
+  .mode.poll { color: var(--broken); }
+
+  #layout { flex: 1; display: flex; min-height: 0; }
+  #side { width: 380px; min-width: 260px; border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+  #detail { flex: 1; overflow: auto; padding: 20px 24px; min-width: 0; }
+
+  #filters { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  #filters button {
+    font: inherit; font-size: 12px; padding: 2px 9px; cursor: pointer;
+    background: var(--bg); color: var(--fg-dim); border: 1px solid var(--line); border-radius: 999px;
+  }
+  #filters button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  #tasks { flex: 1; overflow: auto; margin: 0; padding: 0; list-style: none; }
+  #tasks li {
+    padding: 8px 12px; border-bottom: 1px solid var(--line); cursor: pointer;
+    display: flex; gap: 8px; align-items: baseline;
+  }
+  #tasks li:hover { background: var(--bg-hover); }
+  #tasks li[aria-selected="true"] { background: var(--bg-hover); box-shadow: inset 3px 0 0 var(--accent); }
+  #tasks li.blocked .subject { color: var(--fg-dim); }
+  .id { color: var(--fg-dim); font-variant-numeric: tabular-nums; flex: none; }
+  .subject { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-top: 6px; }
+  .dot.pending { background: var(--pending); }
+  .dot.in_progress { background: var(--progress); }
+  .dot.completed { background: var(--completed); }
+  .dot.unknown, .dot.broken { background: var(--broken); }
+  .badge { font-size: 11px; color: var(--fg-dim); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; flex: none; }
+
+  #detail h2 { font-size: 18px; margin: 0 0 10px; overflow-wrap: anywhere; }
+  #detail .meta { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; font-size: 12px; color: var(--fg-dim); }
+  #detail .meta .kv { border: 1px solid var(--line); border-radius: 4px; padding: 1px 7px; }
+  #detail .deps { margin-bottom: 14px; font-size: 13px; }
+  #detail .deps a { color: var(--accent); cursor: pointer; text-decoration: none; margin-right: 8px; }
+  #detail .deps a:hover { text-decoration: underline; }
+  #detail .deps a.done { color: var(--completed); }
+  #detail pre.body {
+    margin: 0; padding: 14px 16px; background: var(--bg-sub); border: 1px solid var(--line); border-radius: 6px;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+    font: 13px/1.75 ui-monospace, "Cascadia Mono", Consolas, "Yu Gothic", monospace;
+  }
+  .empty { color: var(--fg-dim); }
+  .error { color: var(--broken); }
+
+  #detail .actions { display: flex; gap: 6px; margin-top: 16px; flex-wrap: wrap; align-items: center; }
+  #detail .actions .label { font-size: 12px; color: var(--fg-dim); margin-right: 2px; }
+  #detail .actions button {
+    font: inherit; font-size: 12px; padding: 3px 11px; cursor: pointer;
+    background: var(--bg); color: var(--fg); border: 1px solid var(--line); border-radius: 4px;
+  }
+  #detail .actions button:hover:not(:disabled) { background: var(--bg-hover); }
+  #detail .actions button:disabled { opacity: .4; cursor: default; }
+  #detail .actions button.danger { color: var(--broken); border-color: var(--broken); margin-left: auto; }
+  /* 操作の結果は上部の帯に出す。詳細パネルに出すと、削除で対象が消えたときに
+     結果ごと消えてしまう（実際にそうなった）。 */
+  #notice { padding: 8px 14px; font-size: 13px; border-bottom: 1px solid var(--line); }
+  #notice.error { color: var(--broken); }
+  #notice.warn { color: var(--warn); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <h1>Claude Code タスクビューア</h1>
+  <select id="list-select" aria-label="タスクリスト"></select>
+  <span id="counts" class="mode"></span>
+  <span class="spacer"></span>
+  <span id="mode" class="mode"></span>
+</header>
+
+<div id="notice" hidden></div>
+
+<div id="layout">
+  <div id="side">
+    <div id="filters"></div>
+    <ul id="tasks"></ul>
+  </div>
+  <main id="detail"><p class="empty">左の一覧からタスクを選んでください。</p></main>
+</div>
+
+<script>
+const STATUSES = ['all', 'pending', 'in_progress', 'completed']
+const KNOWN_STATUSES = ['pending', 'in_progress', 'completed']
+
+// SSE は接続が切れても自動で再接続を続け、readyState は CLOSED にならない。つまり
+// readyState では切断を判定できない。サーバーが送ってくる生存確認（ping）が途切れた
+// ことで判定する。ping の間隔は 20 秒なので、その 3 倍を目安にする。
+const SSE_STALE_MS = 60000
+const SSE_WATCHDOG_INTERVAL_MS = 5000
+
+// 読み込みの上限。応答が返らないまま止まると、再同期の排他が解けず以後の読み直しが
+// すべて黙って捨てられる（スリープ復帰やネットワーク切替で起こりうる）。
+const FETCH_TIMEOUT_MS = 15000
+const STATUS_LABEL = {
+  all: 'すべて',
+  pending: '未着手',
+  in_progress: '進行中',
+  completed: '完了',
+  unknown: '不明',
+  other: '不明な状態',
+  unreadable: '読めません',
+}
+
+const el = {
+  listSelect: document.getElementById('list-select'),
+  counts: document.getElementById('counts'),
+  mode: document.getElementById('mode'),
+  notice: document.getElementById('notice'),
+  filters: document.getElementById('filters'),
+  tasks: document.getElementById('tasks'),
+  detail: document.getElementById('detail'),
+}
+
+const state = {
+  lists: [],
+  currentList: localStorage.getItem('list') || null,
+  filter: localStorage.getItem('filter') || 'all',
+  tasks: [],
+  // いま開いているリストで、タスクとして認識できなかったファイルの数。
+  unrecognized: 0,
+  selectedId: null,
+  // 書き込み中はボタンを止める。二重に押して同じ操作が 2 回飛ぶのを防ぐ。
+  busy: false,
+  // 操作の結果。{ level: 'error' | 'warn', text }。失敗と「やったが確認できなかったこと」を
+  // 同じ見た目にすると、どちらなのか読み取れない。
+  notice: null,
+  updateMode: 'starting',
+  modeReason: null,
+  // 接続の生死と、データが最新かどうかを別に持つ。混ぜると「繋がったのだから最新
+  // だろう」という推論が入り込む。繋がったことと、切れている間の変更を取り直せた
+  // ことは別の事実で、後者は失敗しうる。
+  connection: 'live',
+  stale: false,
+  resyncing: false,
+}
+
+
+// 応答の解析。失敗応答のときだけ本文の解析失敗を許す。成功応答で解析に失敗したなら
+// それ自体を伝える（黙って {} を返すと、無関係な TypeError として表面化するか、
+// 応答に含まれていた警告が消える）。読み取りと書き込みで同じ関数を通す。
+async function parseResponse(res) {
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || `${res.status} ${res.statusText}`)
+  }
+  try {
+    return await res.json()
+  } catch (err) {
+    throw new Error(`応答を JSON として読めません: ${err.message}`)
+  }
+}
+
+async function getJson(url) {
+  return parseResponse(await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }))
+}
+
+function renderMode() {
+  // 接続が切れていることを最優先で出す。サーバー側の更新方式を表示し続けると、
+  // 実際には何も届いていないのに「追従している」と読めてしまう。
+  if (state.connection === 'lost') {
+    el.mode.textContent = '自動更新: 切断（サーバーが止まっているか、接続できません）'
+    el.mode.className = 'mode poll'
+    return
+  }
+  // 繋がっても、切れている間の変更を取り直せていなければ最新ではない。
+  if (state.stale) {
+    el.mode.textContent = state.resyncing
+      ? '自動更新: 再接続しました（読み直しています）'
+      : '自動更新: 再接続しましたが読み直せていません（次の確認で再試行します）'
+    el.mode.className = 'mode poll'
+    return
+  }
+  if (state.updateMode === 'watch') {
+    el.mode.textContent = '自動更新: ファイル監視'
+    el.mode.className = 'mode'
+  } else if (state.updateMode === 'poll') {
+    el.mode.textContent =
+      '自動更新: ポーリング（5 秒間隔）' + (state.modeReason ? ` — ${state.modeReason}` : '')
+    el.mode.className = 'mode poll'
+  } else {
+    el.mode.textContent = ''
+    el.mode.className = 'mode'
+  }
+}
+
+// blockedBy に挙がっている相手が 1 つでも未完了なら「着手できない」とみなす。
+// Claude Code の TaskList が blocked として返すのと同じ判定。
+function blockersOf(task, byId) {
+  // 完了したタスクはもう何も待っていない。サーバー側の削除ガード（waitingOn）も
+  // 完了したタスクを「待っている側」に数えないので、判定を揃える。
+  if (task.status === 'completed') return []
+  return task.blockedBy.filter((id) => (byId.get(id)?.status ?? 'unknown') !== 'completed')
+}
+
+function renderLists() {
+  el.listSelect.replaceChildren()
+  for (const list of state.lists) {
+    const option = document.createElement('option')
+    option.value = list.list
+    // 開けないリスト・中身を認識できないリストも一覧に残し、理由を名前に添える。
+    // 隠すと「あるはずのリストが見えない」だけになり、原因が分からない。
+    const names = [...(list.projects ?? []), ...(list.branches ?? [])]
+    if (list.unsupported) {
+      option.textContent = `${list.list}（名前が扱えません）`
+    } else if (list.readError) {
+      option.textContent = `${list.list}（読めません: ${list.readError}）`
+    } else if (list.unrecognized) {
+      option.textContent = `${list.list}（タスクとして読めないファイル ${list.unrecognized} 件）`
+    } else {
+      option.textContent =
+        `${list.list}（${list.total}）` + (names.length ? ` — ${names.join(' / ')}` : '')
+    }
+    option.disabled = Boolean(list.unsupported)
+    el.listSelect.append(option)
+  }
+  if (state.currentList) el.listSelect.value = state.currentList
+  if (!el.listSelect.value && state.lists.length) el.listSelect.value = state.lists[0].list
+  state.currentList = el.listSelect.value || null
+}
+
+function renderFilters() {
+  el.filters.replaceChildren()
+  const counts = { all: state.tasks.length }
+  for (const task of state.tasks) counts[task.status] = (counts[task.status] ?? 0) + 1
+  // 読めないタスクは status を持たないため、どの状態フィルタにも入らない。専用の
+  // ボタンを出さないと内訳の合計が「すべて」と合わず、消えた分の行方が分からなくなる。
+  const unreadable = state.tasks.filter((task) => task.readError).length
+  // 既知の 3 値以外の status を持つタスクも、専用のボタンが無いとどのフィルタでも
+  // 見えなくなる（本体のスキーマが変わったときや、status が欠けているとき）。
+  const other = state.tasks.filter(
+    (task) => !task.readError && !KNOWN_STATUSES.includes(task.status),
+  ).length
+  const buttons = [
+    ...STATUSES,
+    ...(other > 0 ? ['other'] : []),
+    ...(unreadable > 0 ? ['unreadable'] : []),
+  ]
+
+  // 保存されていた絞り込みが今のリストに存在しないことがある（読めないタスクが無くなった、
+  // 別のリストへ切り替えた等）。そのままだと空の一覧に閉じ込められ、戻すボタンも出ない。
+  if (!buttons.includes(state.filter)) {
+    state.filter = 'all'
+    localStorage.setItem('filter', 'all')
+  }
+
+  for (const status of buttons) {
+    const button = document.createElement('button')
+    const count =
+      status === 'unreadable' ? unreadable : status === 'other' ? other : (counts[status] ?? 0)
+    button.textContent = `${STATUS_LABEL[status]} ${count}`
+    button.setAttribute('aria-pressed', String(state.filter === status))
+    button.addEventListener('click', () => {
+      state.filter = status
+      localStorage.setItem('filter', status)
+      renderFilters()
+      renderTasks()
+    })
+    el.filters.append(button)
+  }
+}
+
+function renderTasks() {
+  const byId = new Map(state.tasks.map((t) => [t.id, t]))
+  el.tasks.replaceChildren()
+  const shown = state.tasks.filter((task) => {
+    if (state.filter === 'all') return true
+    if (state.filter === 'unreadable') return Boolean(task.readError)
+    if (state.filter === 'other') return !task.readError && !KNOWN_STATUSES.includes(task.status)
+    return !task.readError && task.status === state.filter
+  })
+  if (shown.length === 0) {
+    const li = document.createElement('li')
+    li.className = 'empty'
+    // 「本当に何も無い」と「タスクとして読めないファイルがある」を書き分ける。
+    // 後者を汎用の文言で覆うと、一覧の側にだけ出していた診断が開いた瞬間に消える。
+    li.textContent =
+      state.tasks.length === 0 && state.unrecognized > 0
+        ? `タスクとして読めないファイルが ${state.unrecognized} 件あります（名前が想定と違います）。`
+        : '該当するタスクがありません。'
+    el.tasks.append(li)
+    return
+  }
+  for (const task of shown) {
+    const li = document.createElement('li')
+    li.setAttribute('aria-selected', String(task.id === state.selectedId))
+
+    const dot = document.createElement('span')
+    dot.className = `dot ${task.readError ? 'broken' : task.status}`
+    li.append(dot)
+
+    const id = document.createElement('span')
+    id.className = 'id'
+    id.textContent = `#${task.id}`
+    li.append(id)
+
+    const subject = document.createElement('span')
+    subject.className = 'subject'
+    subject.textContent = task.readError ? '(読めません)' : task.subject
+    li.append(subject)
+
+    const blockers = task.readError ? [] : blockersOf(task, byId)
+    if (blockers.length) {
+      li.classList.add('blocked')
+      const badge = document.createElement('span')
+      badge.className = 'badge'
+      badge.textContent = `待ち #${blockers.join(' #')}`
+      li.append(badge)
+    }
+
+    li.addEventListener('click', () => select(task.id))
+    el.tasks.append(li)
+  }
+}
+
+function renderDetail() {
+  const byId = new Map(state.tasks.map((t) => [t.id, t]))
+  const task = byId.get(state.selectedId)
+  el.detail.replaceChildren()
+  if (!task) {
+    const p = document.createElement('p')
+    p.className = 'empty'
+    p.textContent = '左の一覧からタスクを選んでください。'
+    el.detail.append(p)
+    return
+  }
+
+  if (task.readError) {
+    const h2 = document.createElement('h2')
+    h2.textContent = `#${task.id}`
+    const p = document.createElement('p')
+    p.className = 'error'
+    p.textContent = `このタスクは読めませんでした: ${task.readError}`
+    el.detail.append(h2, p)
+    return
+  }
+
+  const h2 = document.createElement('h2')
+  h2.textContent = `#${task.id}　${task.subject}`
+  el.detail.append(h2)
+
+  const meta = document.createElement('div')
+  meta.className = 'meta'
+  const items = [['状態', STATUS_LABEL[task.status] ?? task.status]]
+  if (task.owner) items.push(['担当', task.owner])
+  if (task.activeForm) items.push(['進行中の表示', task.activeForm])
+  if (task.mtime) items.push(['更新', new Date(task.mtime).toLocaleString()])
+  for (const [key, value] of Object.entries(task.metadata)) {
+    items.push([key, typeof value === 'string' ? value : JSON.stringify(value)])
+  }
+  for (const [key, value] of items) {
+    const kv = document.createElement('span')
+    kv.className = 'kv'
+    kv.textContent = `${key}: ${value}`
+    meta.append(kv)
+  }
+  el.detail.append(meta)
+
+  for (const [label, ids] of [['これを待っている', task.blocks], ['これが待っているもの', task.blockedBy]]) {
+    if (!ids.length) continue
+    const div = document.createElement('div')
+    div.className = 'deps'
+    div.append(document.createTextNode(`${label}: `))
+    for (const id of ids) {
+      const other = byId.get(id)
+      const link = document.createElement('a')
+      link.textContent = other ? `#${id} ${other.subject}` : `#${id}（このリストにありません）`
+      if (other?.status === 'completed') link.className = 'done'
+      if (other) link.addEventListener('click', () => select(id))
+      div.append(link)
+    }
+    el.detail.append(div)
+  }
+
+  const body = document.createElement('pre')
+  body.className = 'body'
+  // 本文には Markdown 記法や `<` が入る。textContent で入れる（innerHTML は使わない）。
+  body.textContent = task.description || '(本文なし)'
+  el.detail.append(body)
+
+  el.detail.append(renderActions(task))
+}
+
+// 操作の結果。対象が消えても残るよう、詳細パネルの外に出す。
+function renderNotice() {
+  if (!state.notice) {
+    el.notice.hidden = true
+    el.notice.textContent = ''
+    return
+  }
+  el.notice.hidden = false
+  el.notice.className = state.notice.level
+  el.notice.textContent = state.notice.text
+}
+
+// 操作は本文の下に置く。長い本文を読んでから操作する流れになり、誤って押しにくい。
+function renderActions(task) {
+  const wrap = document.createElement('div')
+  wrap.className = 'actions'
+
+  const label = document.createElement('span')
+  label.className = 'label'
+  label.textContent = '状態を変える:'
+  wrap.append(label)
+
+  for (const status of ['pending', 'in_progress', 'completed']) {
+    const button = document.createElement('button')
+    button.textContent = STATUS_LABEL[status]
+    button.disabled = task.status === status || state.busy
+    button.addEventListener('click', () => changeStatus(task, status))
+    wrap.append(button)
+  }
+
+  const remove = document.createElement('button')
+  remove.className = 'danger'
+  remove.textContent = '削除'
+  remove.disabled = state.busy
+  remove.addEventListener('click', () => removeTask(task))
+  wrap.append(remove)
+
+  return wrap
+}
+
+async function mutate(method, task, body) {
+  const path = `/api/tasks/${encodeURIComponent(state.currentList)}/${encodeURIComponent(task.id)}`
+  // 読み取りと同じ解析を通す。ここで独自に握り潰すと、応答に含まれる warning
+  // （削除時の「依存を確認できていません」）が黙って消える。
+  return parseResponse(
+    await fetch(path, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    }),
+  )
+}
+
+async function runAction(fn) {
+  state.busy = true
+  state.notice = null
+  renderNotice()
+  renderDetail()
+  try {
+    const result = await fn()
+    // 「やったが確認できなかったこと」がある場合は残す（例: 読めないタスクがあり、
+    // それがこのタスクを待っていたかどうか分からないまま削除した）。
+    if (result?.warning) state.notice = { level: 'warn', text: result.warning, source: 'action' }
+  } catch (err) {
+    state.notice = { level: 'error', text: err.message, source: 'action' }
+  } finally {
+    state.busy = false
+  }
+  renderNotice()
+  // 成否にかかわらず読み直す。失敗した場合も、いま何が起きているかを最新の中身で見せる。
+  await requestRefresh().catch((err) => {
+    // 操作は成功しているのに一覧の再取得だけ失敗することがある。そのとき単に
+    // 「読み込みに失敗」と出すと、操作そのものが失敗したように読める（実際には
+    // ファイルは既に書き換わっており、一覧には消えたはずのタスクが残っている）。
+    const actionFailed = state.notice?.level === 'error'
+    state.notice = {
+      level: 'error',
+      text: actionFailed
+        ? `${state.notice.text}（一覧の更新にも失敗しました: ${err.message}）`
+        : `操作は完了しましたが、一覧の更新に失敗しました: ${err.message}`,
+    }
+    renderNotice()
+  })
+}
+
+function changeStatus(task, status) {
+  if (!confirm(`#${task.id} を「${STATUS_LABEL[status]}」にします。\n\n${task.subject}`)) return
+  runAction(() => mutate('PATCH', task, { status, hash: task.hash }))
+}
+
+function removeTask(task) {
+  if (!confirm(`#${task.id} を削除します。元に戻せません。\n\n${task.subject}`)) return
+  runAction(() => mutate('DELETE', task, { hash: task.hash }))
+}
+
+function select(id) {
+  state.selectedId = id
+  // 別のタスクへ移ったら、前の操作の結果表示は消す。残すと関係のない場所で出続ける。
+  state.notice = null
+  renderNotice()
+  renderTasks()
+  renderDetail()
+}
+
+function showError(where, err) {
+  el.detail.replaceChildren()
+  const p = document.createElement('p')
+  p.className = 'error'
+  p.textContent = `${where}: ${err.message}`
+  el.detail.append(p)
+}
+
+// データの読み直しはすべてこの 1 本を通す。窓口を分けると、同じ瞬間に別々の読み込みが
+// 走り、①一覧の結果でリストが切り替わったとき、切り替え先を誰も読み直さない
+// ②どちらの応答を採るかを後追いで裁く必要がある、という穴ができる。直列にすれば
+// どちらも起きない。
+let refreshQueue = Promise.resolve()
+let refreshQueued = false
+
+function requestRefresh() {
+  // 次の 1 回が既に待っているなら、それに乗る（同じ読み直しを何重にも積まない）。
+  if (refreshQueued) return refreshQueue
+  refreshQueued = true
+  refreshQueue = refreshQueue
+    // 前回の失敗はここで断つ。断たないと、一度失敗した鎖に乗った以後の
+    // すべての読み直しが失敗し続ける。
+    .catch(() => {})
+    .then(() => {
+      refreshQueued = false
+      // 一覧 → タスクの順に読む。同時に読むと、一覧の結果でリストが切り替わった
+      // ときにタスク側が古いリストを読んでしまう。
+      return loadLists().then(loadTasks)
+    })
+  return refreshQueue
+}
+
+async function loadLists() {
+  const data = await getJson('/api/lists')
+  state.lists = data.lists
+  state.updateMode = data.updateMode
+  state.modeReason = data.modeReason ?? null
+  renderMode()
+  renderLists()
+  el.counts.textContent = `${data.lists.length} リスト`
+}
+
+async function loadTasks() {
+  if (!state.currentList) {
+    el.tasks.replaceChildren()
+    return
+  }
+  const requested = state.currentList
+  const data = await getJson(`/api/tasks?list=${encodeURIComponent(requested)}`)
+  // 読んでいる間に利用者がリストを切り替えたら、この結果は捨てる。切り替えた側が
+  // あらためて読み直しを積むので、取りこぼしにはならない。
+  if (requested !== state.currentList) return
+  state.tasks = data.tasks
+  state.unrecognized = data.unrecognized ?? 0
+  if (!state.tasks.some((t) => t.id === state.selectedId)) state.selectedId = null
+  renderFilters()
+  renderTasks()
+  renderDetail()
+}
+
+el.listSelect.addEventListener('change', () => {
+  state.currentList = el.listSelect.value
+  localStorage.setItem('list', state.currentList)
+  state.selectedId = null
+  // 別のリストへ移ったら前の操作の結果表示は消す。タスクを選び直したときと同じ扱い。
+  state.notice = null
+  renderNotice()
+  requestRefresh().catch((err) => showError('タスクの読み込みに失敗しました', err))
+})
+
+// 切れている間の変更を取り直す。**成功するまで stale を下げない** —— 下げてから
+// 読み直すと、読み直しに失敗しても画面は「最新を見ている」ように見える。
+async function resync() {
+  if (state.resyncing) return
+  state.resyncing = true
+  renderMode()
+  try {
+    await requestRefresh()
+    state.stale = false
+    // 自分が出した失敗の表示は、成功したら取り下げる。操作由来の表示（削除の警告など）は
+    // 残す。単一の枠を無条件に上書きすると、どちらかが黙って消える。
+    if (state.notice?.source === 'resync') {
+      state.notice = null
+      renderNotice()
+    }
+  } catch (err) {
+    // stale は下げない。次の生存確認でまた試みる。
+    state.notice = {
+      level: 'error',
+      text: `読み直しに失敗しました: ${err.message}`,
+      source: 'resync',
+    }
+    renderNotice()
+  } finally {
+    state.resyncing = false
+    renderMode()
+  }
+}
+
+// 変更通知。切れたことを画面に出さないと、更新が止まっていることに気付けない。
+function connectEvents() {
+  const source = new EventSource('/api/events')
+  let lastBeatAt = Date.now()
+
+  // サーバーからの何らかの受信を「生きている」印にする。ping はコメント行ではなく
+  // イベントとして送られてくるので、ここで拾える。
+  const beat = () => {
+    lastBeatAt = Date.now()
+    if (state.connection === 'lost') {
+      state.connection = 'live'
+      // 繋がっただけ。取り直せたかどうかは resync の結果で決まる。
+      state.stale = true
+      renderMode()
+    }
+    // 取り直せていない間は、生存確認が来るたびに試みる。
+    if (state.stale) resync()
+  }
+
+  source.addEventListener('open', beat)
+  source.addEventListener('ping', beat)
+  source.addEventListener('mode', (event) => {
+    beat()
+    const data = JSON.parse(event.data)
+    state.updateMode = data.updateMode
+    state.modeReason = data.reason ?? null
+    renderMode()
+  })
+  source.addEventListener('changed', () => {
+    beat()
+    // stale のときは beat() が resync 経由で読み直しを積んでいる。ここで別に積むと
+    // 同じ読み直しが二重に走り、「どちらの応答を採るか」を裁く話に戻ってしまう。
+    if (!state.stale) requestRefresh().catch((err) => showError('更新に失敗しました', err))
+  })
+
+  const watchdog = setInterval(() => {
+    if (state.connection === 'live' && Date.now() - lastBeatAt > SSE_STALE_MS) {
+      state.connection = 'lost'
+      renderMode()
+    }
+  }, SSE_WATCHDOG_INTERVAL_MS)
+  window.addEventListener('beforeunload', () => clearInterval(watchdog))
+}
+
+requestRefresh()
+  .then(connectEvents)
+  .catch((err) => showError('起動に失敗しました', err))
+</script>
+</body>
+</html>
