@@ -1,0 +1,76 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls *)",
+      "Bash(dir)",
+      "Bash(which *)",
+      "Bash(netstat -ano)",
+      "PowerShell(netstat -ano)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Test-Path *)",
+      "PowerShell(Get-ChildItem *)",
+      "Read(//tmp/claude/**)",
+
+      "Bash(node --check *)",
+      "Bash(npm install)",
+      "Bash(npm install *)",
+      "Bash(node server.mjs)",
+
+      "Bash(git status *)",
+      "Bash(git rev-parse *)",
+      "Bash(git merge-base *)",
+      "Bash(git fetch)",
+      "Bash(git fetch --quiet)",
+      "Bash(git pull)",
+      "Bash(git merge *)",
+      "Bash(git branch --list *)",
+      "Bash(git branch --merged *)",
+      "Bash(git branch --show-current)",
+      "Bash(git tag --points-at *)",
+      "Bash(git rev-list *)",
+
+      "Bash(gh issue view *)",
+      "Bash(gh issue list *)",
+
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+
+      "mcp__playwright__browser_navigate",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_snapshot",
+      "mcp__playwright__browser_close",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_type",
+      "mcp__playwright__browser_console_messages",
+      "mcp__playwright__browser_wait_for",
+      "mcp__playwright__browser_press_key",
+      "mcp__playwright__browser_fill_form",
+      "mcp__playwright__browser_evaluate",
+
+      "mcp__context7__resolve-library-id",
+      "mcp__context7__query-docs",
+
+      "Task",
+
+      "Skill(update-config)",
+      "Skill(update-config:*)"
+    ],
+
+    "ask": [
+      "Bash(git push *--force*)",
+      "Bash(git push *-f *)",
+      "Bash(git push *-f)"
+    ],
+
+    "defaultMode": "auto"
+  },
+
+  "model": "claude-sonnet-5",
+  "language": "日本語",
+  "effortLevel": "xhigh",
+
+  "statusLine": {
+    "type": "command",
+    "command": ".claude/statusline-command.sh"
+  }
+}

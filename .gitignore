@@ -1,3 +1,8 @@
 node_modules/
 .playwright-mcp/
 *.png
+
+# 個人のローカル設定。共有するのは .claude/settings.json のほう
+.claude/settings.local.json
+# レビュー結果のアーカイブ（共有はコミット外）
+.claude/review-reports/
