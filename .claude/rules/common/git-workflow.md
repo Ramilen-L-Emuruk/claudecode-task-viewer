@@ -14,6 +14,8 @@ Co-Authored-By: Claude <モデル名> <noreply@anthropic.com>
 コミットメッセージ末尾には必ず `Co-Authored-By` を付与する。**モデル名はその時作業している Claude モデルに合わせる**（ハーネスが指定するモデル名を使用する。特定モデルに固定しない）。
 - 例（Sonnet 4.6 で作業時）: `Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>`
 
+**公開リポジトリでは、コミットメッセージ・作者欄にも個人情報を書かない。** メッセージは push した時点で公開され、ファイルを直しても履歴に残る（[security.md](./security.md)「公開する前に個人情報が無いことを確かめる」）。
+
 ## コミット前の確認
 
 - **コミット前に必ずユーザーに確認を取る。省略しない**

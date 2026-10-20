@@ -47,7 +47,7 @@
 | 対象 | 最悪の呼び出し方 | 判定 |
 |---|---|---|
 | `EnterWorktree` | `name:` 指定（`CLAUDE.md` が禁じている形）でブランチ名を自動変換されたワークツリーができる。基点は `worktree.baseRef`（**Claude Code 本体の設定**。既定 `fresh` ＝ `origin/<既定ブランチ>`）が決めるので古い地点から始まる心配は無く、**消して切り直せる** | 通過 |
-| `ExitWorktree` | `action: "remove"` ＋ `discard_changes: true` で、未コミットの変更や未マージのコミットごと消える。**復元手段が無い**。同じ片付けは `git worktree remove`（allow 済み）で足り、そちらは変更が残っていれば git 自身が拒否する | 除外 |
+| `ExitWorktree` | `action: "remove"` ＋ `discard_changes: true` で、未コミットの変更や未マージのコミットごと消える。**復元手段が無い**。同じ片付けは [worktree.md](./worktree.md)「ワークツリーを消す前に、ジャンクションを外す」のコマンドで足り、その中の `git worktree remove` は変更が残っていれば git 自身が拒否する（素の `git worktree remove` は Windows のジャンクションを辿るので、単独では使わない） | 除外 |
 | `Bash(git reset --hard *)` | ローカル専用コミットを失う。`release` スキルが「ユーザー確認を省略しないこと」と定めている | 除外 |
 
 **第 2 段: レビュー専用エージェントが実行する理由があるか。** 無いものは、可逆でも入れない。

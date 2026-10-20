@@ -29,7 +29,7 @@ MR/PR単体を読むだけでは「なぜその実装にしたか」が分から
 git worktree add -b worktree/chore/mr-review-<番号> .claude/worktrees/mr<番号>-review origin/<MR/PRのソースブランチ>
 ```
 
-メインの自分はこのワークツリーで**読み取り専用の調査しか行わない**ため、[worktree.md](./worktree.md) の `EnterWorktree` で入る必要はない。ワークツリーの絶対パスをそのままサブエージェントへのプロンプトに含めれば十分。削除手順（`git worktree remove` → ブランチ削除）は [worktree.md](./worktree.md) に準じる。
+メインの自分はこのワークツリーで**読み取り専用の調査しか行わない**ため、[worktree.md](./worktree.md) の `EnterWorktree` で入る必要はない。ワークツリーの絶対パスをそのままサブエージェントへのプロンプトに含めれば十分。削除手順は [worktree.md](./worktree.md)「削除手順」に準じる（ワークツリーは同じファイルの「ワークツリーを消す前に、ジャンクションを外す」のコマンドで消し、素の `git worktree remove` は叩かない。続けてブランチを削除する）。
 
 ### 4. 専門エージェントによる並列レビュー
 

@@ -149,9 +149,8 @@ done
 
 1. `git worktree list` で**自分のワークツリーがまだ残っているか確認する**
 2. **削除してよいかユーザーに確認する。** 他の削除経路（リリース手順・取りこぼし検出）はすべて確認を課している。ここだけ無確認にする理由はない
-3. 承認後、上記「削除手順」で片付ける
-4. **既に無ければ何もしない。** リリース側が先に片付けただけであり、エラーではない
-5. 確認した直後にリリース側が消すこともある。**削除コマンドが「対象が無い」と言って失敗しても、それも正常**として扱う
+3. 承認後、下記「削除手順」で片付ける（ワークツリーは「ワークツリーを消す前に、ジャンクションを外す」のコマンドで消す）
+4. **既に無ければ何もしない。** リリース側が先に片付けただけであり、エラーではない。確認した直後にリリース側が消すこともあるので、削除コマンドが `ALREADY-GONE` を出しても、`git worktree list` から消えていれば正常として扱う
 
 **これは「うまくいけば早く片付く」という上積みにすぎない。** 監視が働かなくても、次のリリースの取りこぼし検出で必ず回収される。先着順でよく、競合を調停する仕組みは要らない。
 
@@ -166,8 +165,9 @@ ExitWorktree(action: "keep")
 # Step 2: ブランチとディレクトリの対応を確認する
 git worktree list
 
-# Step 3: ワークツリーディレクトリを削除
-git worktree remove .claude/worktrees/<name>
+# Step 3: ワークツリーディレクトリを削除する
+#   下記「ワークツリーを消す前に、ジャンクションを外す」のコマンドを、.claude/worktrees/<name> を指定して実行する
+#   （素の git worktree remove は叩かない）
 
 # Step 4: ブランチを削除
 git branch -d ready/<type>/<name>
@@ -176,9 +176,60 @@ git branch -d ready/<type>/<name>
 - ブランチ名とディレクトリ名は接頭辞が異なるため、**必ず `git worktree list` で対応を確認してから削除する**
 - **`--force` / `-D` は使わない。** 他セッションの作業ディレクトリを消す操作であり、取り返しがつかない
 - 削除が失敗する典型は 3 つ。**いずれもユーザーに状況を提示して確認する**
-  - 別セッションのシェルがそのディレクトリを作業ディレクトリにしたまま残っている（`cd` で移動 → だめなら PowerShell の `Remove-Item -Recurse -Force`）
+  - 別セッションのシェルがそのディレクトリを作業ディレクトリにしたまま残っている（`cd` で移動 → だめなら PowerShell の `Remove-Item -Recurse -Force`。**ただし下記「ワークツリーを消す前に、ジャンクションを外す」のコマンドでジャンクションが残っていないことを確かめた後に限る** —— 残ったまま掛けると、ジャンクションを辿ってメイン側の中身まで消しうる）
   - コード解析ツール（Serena 等）がそのパスをプロジェクトとして掴んだまま（別パスへ再アクティベート）
   - `contains modified or untracked files` と出る場合はロックではない。サブエージェントが検証用に作った使い捨てファイルが残っていることがある。`git -C <worktree> status --short --untracked-files=all` で中身を確認してから消す
+
+### ワークツリーを消す前に、ジャンクションを外す
+
+**Windows では、ワークツリーの中のフォルダ（`node_modules`・ビルド出力・依存のキャッシュなど）をメインの checkout へのジャンクションにしたまま `git worktree remove` を掛けると、git はジャンクションを辿り、メイン側の中身を消す。** 終了コードは 0 で、警告も出ない。
+
+ジャンクションは、Windows のフォルダを別の場所へ向ける仕掛け（シンボリックリンクの一種で、管理者権限なしで張れる）。依存のインストールを省くために張ることがある（張ること自体は禁じない）。ただし git にもエクスプローラーにも普通のフォルダに見えるので、消すときに中まで再帰する。**張ったら、手放す前に外すこと。** 張り方は問わない。見分け方と外し方だけ知っていればよい。
+
+**ワークツリーは、どの経路でも下のコマンドで消す。** 素の `git worktree remove` は叩かず、`ExitWorktree(action: "remove")` でも消さない（後者がジャンクションを外すかは確かめていない。外す保証が無いので使わない）。いまある経路は次のとおり（**消す経路を新しく足したら、ここへも足すこと**）。
+
+- 上記「完了時の改名」の選択肢 2（下記「マージ前にディレクトリだけ削除する場合」）
+- 上記「マージ後の自己クリーンアップ」
+- `release` スキルの手順 7、および手順 1 の残骸の回収（取りこぼし・放置されたワークツリー）
+- [mr-review.md](./mr-review.md) のレビュー用ワークツリーの後片付け
+
+**Windows では、リポジトリのトップレベルで PowerShell から下のコマンドを実行する**（Windows PowerShell 5.1 で確かめてある。Claude Code なら PowerShell のツールで実行する。Bash からしか呼べない環境なら、自分で呼び出し方を組み立てずにユーザーへ実行を頼む）。ワークツリーの中のジャンクションをすべて外し、**外れたことを確かめてから**消す。**途中で何か 1 つでも失敗したら、消さずに止まる。** Windows 以外では外すものが無いので、`git worktree remove .claude/worktrees/<name>` で消してよい（git はシンボリックリンクをリンクとして消す、という前提。Windows 以外では確かめていない）。
+
+```powershell
+$target = '.claude/worktrees/<name>'
+try {
+  if (-not (Test-Path -LiteralPath $target)) {
+    "ALREADY-GONE: $target"
+  } else {
+    $wt = (Resolve-Path -LiteralPath $target -ErrorAction Stop).Path
+    if ((Get-Item -LiteralPath $wt -Force -ErrorAction Stop).Attributes -band [System.IO.FileAttributes]::ReparsePoint) {
+      throw "ワークツリーのルート自体がジャンクションになっている: $wt"
+    }
+    Get-ChildItem -LiteralPath $wt -Recurse -Force -Directory -Attributes ReparsePoint -ErrorAction Stop |
+      ForEach-Object { [System.IO.Directory]::Delete($_.FullName, $false) }
+    $left = @(Get-ChildItem -LiteralPath $wt -Recurse -Force -Directory -Attributes ReparsePoint -ErrorAction Stop)
+    if ($left.Count -gt 0) {
+      "JUNCTION-STILL-THERE（ワークツリーは消さない）:"; $left.FullName
+    } else {
+      git worktree remove $wt
+      if ($LASTEXITCODE -eq 0) { "WORKTREE-REMOVED: $wt" } else { "WORKTREE-REMOVE-FAILED（終了コード $LASTEXITCODE）" }
+    }
+  }
+} catch {
+  "CHECK-FAILED（ワークツリーは消さない）: $($_.Exception.Message)"
+}
+```
+
+- **結果は最後に出る 1 行で読む。** 消えたのは `WORKTREE-REMOVED` が出たときだけ。それ以外（何も出ないときを含む）は消えていないとみなす。`ALREADY-GONE` は「そのパスに何も無い」で、他の経路が先に片付けただけなら正常。**ただしパスの書き間違い・トップレベル以外での実行でも出る**ので、`git worktree list` にもそのワークツリーが無いことを確かめてから正常と読む。list に残っていたら、状況をユーザーに提示する
+- **見つけ方はフォルダの属性（ReparsePoint）。** ジャンクションも、向け先が消えた宙吊りのものも拾う。`Get-ChildItem -Recurse` は**拾ったジャンクションの中へは降りない**ので、深さの上限を置かなくても向け先（メイン側）までは走らない。git が辿ってしまうのはフォルダのリンクだけなので、ファイルのリンク（`core.symlinks` を有効にしたリポジトリが追跡しているものなど）は `-Directory` で対象から外し、git に任せる
+- 外すのは `[System.IO.Directory]::Delete(<絶対パス>, $false)` に限る。ジャンクションそのものだけを消し、向け先には触れない。**ほかの消し方（`rm -r`・`Remove-Item -Recurse` など）を試して代えないこと**。絶対パス（`FullName`）を渡すのは、.NET が PowerShell の現在の場所を見ないため
+- **`-ErrorAction Stop` と `try` で、一覧が取れない（読めないフォルダがある等）・外せない・ルート自体がジャンクション、といった失敗をすべて `CHECK-FAILED` へ落とす。** 失敗を見過ごして `git worktree remove` へ進む経路を作らない
+- **`JUNCTION-STILL-THERE`・`CHECK-FAILED` が出たら、ワークツリーは消えていない。** 出た内容をユーザーに提示する
+- `WORKTREE-REMOVE-FAILED` が出ても `--force` で押し通さない。扱いは呼び出し元の経路の決まりに従う。**別のシェルが掴んでいて消せないときに `Remove-Item -Recurse -Force` へ切り替えるのも、このコマンドでジャンクションが残っていないことを確かめた後に限る**（残ったまま掛けると、ジャンクションを辿ってメイン側の中身まで消しうる）
+- 消し終えたら、メイン側の向け先（`node_modules` なら `node_modules/.bin`）が残っていることを確かめる。**無くなっていたら、メイン側が既に削られている**（このコマンドを通さずに消した経路がある）。インストールし直して戻し、ユーザーに報告する
+- ワークツリーの中にいるセッションからは実行しない（先に `ExitWorktree(action: "keep")` で抜ける）。`powershell` や `git worktree remove` の実行で許可を求められるのは正常で、許可設定へ足して黙らせない（[hooks.md](./hooks.md)「引数では絞れない」）
+
+**素の `git worktree remove` で消えた分は戻らない。** 上のコマンドは、消す行を表示に置き換えて確かめてある（2026-10-20。入れ子・宙吊りのジャンクションが外れて向け先が残ること、外せないもの・読めないフォルダ・ルート自体がジャンクションのときに `CHECK-FAILED` で止まること、パスが無いときに `ALREADY-GONE` になること）。素の `git worktree remove` で向け先が全部消えることは、使い捨てのリポジトリで確かめてある（2026-10-06）。
 
 ### マージ前にディレクトリだけ削除する場合
 
