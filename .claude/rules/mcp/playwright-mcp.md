@@ -66,7 +66,7 @@ Step 7: 正常に動作していることを確認したら完了
 スクリーンショットは `.claude/screenshots/` に保存する:
 
 ```
-browser_take_screenshot → path: ".claude/screenshots/画面名.png"
+browser_take_screenshot → filename: ".claude/screenshots/画面名.png"
 ```
 
 ## 注意事項
