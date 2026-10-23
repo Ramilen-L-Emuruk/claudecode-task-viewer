@@ -4,7 +4,8 @@
 「エラーが出なかったから通った」で進めると、通っていない結果を材料にして先へ進むことになる。
 あわせて、Windows と Excel で**成否が見た目から分からない**ケースを扱う。
 
-> 「日本語を含むパスが渡らないことがある」「Git Bash（Windows）で引数が書き換わる」は Windows 固有、
+> 「日本語を含むパスが渡らないことがある」「Git Bash（Windows）で引数が書き換わる」
+> 「Windows PowerShell 5.1 から外部コマンドを呼ぶとき」は Windows 固有、
 > 「リモートの Windows へ SSH で命令を渡すとき」は接続先が Windows の場合、「既存の Excel ブックを書き換えるとき」は
 > Excel を扱う場合の話。当てはまらない環境では読み飛ばしてよい。
 
@@ -49,6 +50,11 @@
   インストール先へ PATH を通していない道具は、入っていても見つからないと答える。**入れ直しを提案する前に、
   インストール先の絶対パスにその実行ファイルがあるかを確かめる**（ある道具の入れ直しを提案し、
   入れ直しに 1〜2 GB の取得が要るところで、実は入っていたと指摘された例がある）
+- **「この端末に無い」と結論する前に、メモリと会話の記録も読む。** 道具の在処や接続先は、以前に教わっていることがある。
+  教わった在処をメモリへ書かずにいて、後で「無い」と言い、その誤りの上に要らない提案まで積んだ例がある
+  （教わった端末の事情をその場でメモリへ書く決まりは [work-memory.md](./work-memory.md)「手順・判断基準はメモリに書かない」の
+  表の該当行。記録の読み方は同じファイルの「会話の内容を思い出せないときはトランスクリプトを読む」）。誤りに気づいたら、
+  そこから派生した提案も一緒に取り下げる
 
 ## ツールの出力に想定外の文が混じったら、判断に使う前に報告する
 
@@ -114,6 +120,52 @@ MSYS_NO_PATHCONV=1 python <スクリプト>.py /api/items out.json   # / で始�
 
 `curl` に `http://...` で始まる URL を丸ごと渡す形は書き換えられない。**IP を直に書いているのに
 名前解決で落ちたら、まずパスの書き換えを疑う**（プロキシや DNS のせいと誤診して時間を失った例がある）。
+
+## Windows PowerShell 5.1 から外部コマンドを呼ぶとき
+
+Windows PowerShell 5.1（`powershell.exe`。`$PSVersionTable.PSVersion` が 5.1 のもの。PowerShell 7 の `pwsh` とは別物で、
+7 での挙動は確かめていない）から外部コマンド（`ssh`・`git`・`python`、別の `powershell.exe -Command` など）を呼ぶとき、
+次の 3 つの場面で食い違いが起きる（2026-10-22 に Windows PowerShell 5.1.26100 で実測）。**どれもエラーにならず、
+違うものが向こうへ届くか、違うものとして読まれる。** 当てはまる場面が無い呼び出しでは、何もしなくてよい。
+
+| 場面 | 起きること | 代わりにすること |
+|---|---|---|
+| 引数に `"` を含めるとき | **引数に埋め込んだ `"` が消える。** 空白を含む引数では、その位置で引数も割れる。`'{"a":1}'` は `{a:1}` として届き、`'bash -lc "echo hi there"'` は `bash -lc echo`・`hi`・`there` の 3 つとして届いて別のコマンドとして動く | 外側を `'` で包んだまま、中の `"` を `\"` と書く（`'{\"a\":1}'` も `'bash -lc \"echo hi there\"'` も、書いたとおりの 1 つの引数で届いた。`\"` を解するのは、引数を標準のやり方で解釈する相手だけで、`cmd.exe /c` などには当てはまらない）。込み入った引用は、ファイルに書いて渡す（コミットメッセージなら `git commit -F <ファイル>`、リモートなら下記「リモートの Windows へ SSH で命令を渡すとき」の `-EncodedCommand`） |
+| 外部コマンドの出力を文字列として受け取るとき | **出力が、コンソールの文字コードで読まれる。** 日本語版の Windows の既定（cp932）のコンソールでは、UTF-8 の出力（JSON など）が化けて解釈に失敗する | 相手が UTF-8 で出すと分かっているなら、呼ぶ間だけ `[Console]::OutputEncoding` を UTF-8 にし、終わったら戻す（下の例）。**決め打ちで切り替えない** —— 相手がコンソールの文字コードで出す道具なら、UTF-8 にすると逆に化ける |
+| 文字列をパイプで外部コマンドの標準入力へ渡すとき | **渡す文字列は `$OutputEncoding` で符号化される。** 5.1 の既定は US-ASCII なので、非 ASCII は `?` になる。末尾には必ず CRLF が付く。さらに `[Console]::InputEncoding` が BOM 付きの UTF-8 のコンソールでは、頭に BOM（`EF BB BF`）が付く | 非 ASCII を渡すとき、または BOM を許さない相手へ渡すときは、呼ぶ間だけ `$OutputEncoding` と `[Console]::InputEncoding` の両方を BOM 無しの UTF-8 にする（下の例） |
+
+**名前の似た 2 つの設定は、向きが逆。** `[Console]::OutputEncoding` は相手の出力を読む向き、`$OutputEncoding` は
+相手の標準入力へ送る向き（送るときの頭の BOM の有無は `[Console]::InputEncoding` が決める）。
+
+出力と標準入力の対処を、相手が UTF-8 で入出力する場合についてまとめると次の形になる。この例を、Claude Code の
+PowerShell のツールのコンソールと、cp932 に切り替えたコンソールの 2 つで走らせて確かめた。どちらでも、標準入力は
+BOM 無しの UTF-8 で届き、UTF-8 の出力は正しく読め、終わった後に 3 つの設定とも元の値へ戻った。相手の出力が UTF-8 でないなら `output` の行を、標準入力へ何も渡さないなら `input` の行と
+`<渡す文字列> |` を外す（注釈が英語なのは、下記のとおり `.ps1` を ASCII だけで書くため）。
+
+```powershell
+$prevOut = [Console]::OutputEncoding; $prevIn = [Console]::InputEncoding; $prevOE = $OutputEncoding
+try {
+  $utf8 = New-Object System.Text.UTF8Encoding $false
+  [Console]::OutputEncoding = $utf8                          # output: read the tool's output as UTF-8
+  [Console]::InputEncoding = $utf8; $OutputEncoding = $utf8  # input: send stdin as UTF-8 without BOM
+  $result = <渡す文字列> | & <外部コマンド> <引数>
+} finally {
+  [Console]::OutputEncoding = $prevOut; [Console]::InputEncoding = $prevIn; $OutputEncoding = $prevOE
+}
+```
+
+**Claude Code の PowerShell のツールで確かめた結果は、ユーザーのコンソールと食い違う。** 上の実測の時点で、ツールの
+コンソールは入出力とも BOM 付きの UTF-8 で始まっていた（Claude Code の版で変わりうる）。日本語版の Windows のコンソールの
+既定は cp932。**食い違う向きは場面によって違う** —— 出力の文字化けはユーザーの側でだけ起き、標準入力の頭の BOM は
+ツールの側でだけ付く（`?` と末尾の CRLF は両方で起きる）。ツールで確かめて直ったとした修正が、ユーザーのコンソールでは壊れたまま
+だった例がある。
+
+- **ユーザーと同じ条件で確かめるときは、スクリプトをファイルに書き**（下記「スクリプトはファイルに書いてから実行する」）、
+  上の例と同じく値を控えてから、コンソールの入出力をユーザーと同じ文字コードにする（日本語版の既定なら
+  `[Console]::OutputEncoding` と `[Console]::InputEncoding` の両方を `[Text.Encoding]::GetEncoding(932)`）。
+  終わったら `finally` で戻す。それを `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ファイル>` で走らせる
+- **`.ps1` は ASCII だけで書く**（コメントも）。5.1 は BOM の無いスクリプトを ANSI のコードページで読む。日本語の文字列が
+  要るなら文字コードから組み立てる（`[string][char]0x65E5` のように）
 
 ## スクリプトはファイルに書いてから実行する
 

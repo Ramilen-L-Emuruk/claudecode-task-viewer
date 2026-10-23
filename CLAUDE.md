@@ -37,7 +37,13 @@ Claude Code のタスク（`~/.claude/tasks/<リスト名>/<タスク ID>.json`�
   `development-workflow.md`・`git-workflow.md`・`testing.md` など）、このリポジトリにスキルが無いので当たらない。`security.md`「公開する前に個人情報が無いことを確かめる」が
   「リリース」の場面として挙げている push は、**`master` を push するとき全般**と読む
   （下記「コミット」）
-- `security.md` の `git log --format='%ae %ce' origin/main..HEAD` は `origin/master..HEAD` と読む
+- `security.md` の `origin/main..HEAD`（`git log --format='%an <%ae> / %cn <%ce>' origin/main..HEAD` など）は
+  `origin/master..HEAD` と読む
+- `security.md` が指す pre-push フック（`scripts/git-hooks/pre-push`）は、このリポジトリには無く、端末ごとに入れる。
+  設定と入れ方は配布元の `README.md`「8. push するメールアドレスを縛る場合」
+- `playwright-mcp.md` の「`browser_evaluate` は許可設定に入れていない」「使うときに許可を求められるのは正常」は、
+  このリポジトリには当たらない。`.claude/settings.json` が `mcp__playwright__browser_evaluate` を許可しているので、
+  許可を求められずに走る
 - `testing.md` が stash の退避の手順として指す「`release` スキルの手順 5」は、同じ行の括弧の中
   （印を付けた `git stash push -m <印> -- <パス>` → 印から引いた SHA で `apply` → 番号を引き直して `drop`）で足りる
 - **`worktree.md` のうち「ワークツリーを消す前に、ジャンクションを外す」の節だけは適用する**
