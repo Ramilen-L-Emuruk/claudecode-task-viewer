@@ -180,9 +180,9 @@ CRITICAL が 4 巡目・5 巡目に出たなら、それは**1 か 2 が要る�
 |---|---|---|
 | 小規模 | 1〜2 ファイルの typo/スタイル修正・軽微なパラメータ調整 | `adversarial-reviewer` 1 エージェント |
 | 中規模 | 機能追加・複数ファイル・条件分岐の変更 | `adversarial-reviewer` + `silent-failure-hunter` の並列 2 エージェント |
-| 大規模 | アーキテクチャ変更・複数機能横断 | 領域別に `adversarial-reviewer` を複数並列 ＋ **機能間競合レビュー** ＋ **メタレビュー**（`meta-reviewer`） |
+| 大規模 | アーキテクチャ変更・複数機能横断 | 領域別に `adversarial-reviewer` を複数並列 ＋ **機能間競合レビュー**（機能 A × 機能 B の相互作用等）＋ **メタレビュー**（`meta-reviewer` で CRITICAL/HIGH の実装からの再検証） |
 
-`adversarial-reviewer` / `meta-reviewer` の定義はプロジェクトの `.claude/agents/` に配置する。
+`adversarial-reviewer` / `meta-reviewer` の定義はプロジェクトの `.claude/agents/` に配置する（Git 管理対象化し、チーム共有する）。
 
 ## レビュー観点（全エージェント共通）
 

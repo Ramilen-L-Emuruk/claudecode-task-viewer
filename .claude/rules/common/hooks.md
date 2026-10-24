@@ -32,7 +32,7 @@
 
 - `EnterWorktree` — ワークツリー作成の Step 2
 - `Skill(release)` — リリース手続きの起動口
-- `npm test` / `npm run build` — 検証節が名指しする静的な検証
+- `npm test` / `npm run build` — [verification.md](./verification.md) が名指しする静的な検証
 - Playwright の `browser_console_messages` 等 — 「コンソールエラー 0 件を確認」はこれが無いと実行できない
 
 **エージェント起動（ツール名は `Agent`。`Task` は同じツールの旧名で、許可ルールでは同一視される）は allow で扱えない。** `settings.json` の `defaultMode` が `auto` かどうかで理由が変わる。
@@ -70,7 +70,7 @@
 |---|---|
 | `Bash(npm version *)` | **除外。** 個別には可逆だが、レビュアーがバージョンを上げる理由は無い。バージョン確認は元から `AskUserQuestion` を挟む規定なので、確認が 1 つ増える損は小さい |
 | `Bash(npm test)` / `Bash(npm run build)` | 通過。レビュアーが検証のために走らせる筋はある。成果物の生成にとどまり、すぐ終わる |
-| `Bash(npm run dev)` / `Bash(npm run preview)` | 通過。レビュアーが呼ぶ理由は無いが、**この 2 つは検証節が「大きめの変更時は必須」と定める操作**で、外すと実装セッションの手順が確認待ちで止まる。「手順が確実に叩くものは allow に入れる」が優先する。`run_in_background: true` を付けずに呼ぶとハングする点は使い方の規約（`release` スキルに明記）で担保し、許可設定では扱わない |
+| `Bash(npm run dev)` / `Bash(npm run preview)` | 通過。レビュアーが呼ぶ理由は無いが、**この 2 つは [verification.md](./verification.md) が「大きめの変更時は必須」と定める操作**で、外すと実装セッションの手順が確認待ちで止まる。「手順が確実に叩くものは allow に入れる」が優先する。`run_in_background: true` を付けずに呼ぶとハングする点は使い方の規約（`release` スキルに明記）で担保し、許可設定では扱わない |
 | `EnterWorktree` | 通過。レビュアーが呼んでも読み取り作業の範囲を出ない |
 | `Bash(git merge *)` / `Bash(git pull)` | 通過。レビュアーが呼んでも push 前のローカル操作に閉じ、破壊的なフラグを持たない（下記「git が拒否するから安全は成り立たない」でフラグを 1 つずつ確認した） |
 | 読み取り専用の調査コマンド（git / gh / シェル / PowerShell の状態照会、`WebSearch` とドメイン限定の `WebFetch`、Playwright と context7 の読み取り系。**一覧は `settings.json`**。ただし Playwright は読み取り系と、下記「残存リスク」で意図的に許容した操作系が同じ配列に並ぶので、あちらと併せて読むこと） | 通過。どこから呼ばれても取り返しがつく。**例外は `git fetch`**——リモート追跡ブランチを更新するので厳密には書き込みだが、冪等で再取得すれば整合する |
@@ -147,12 +147,12 @@ git worktree add -B <既存ブランチ> <path>   # force なしで既存ブラ�
 
 | 受容しているリスク | 内容 |
 |---|---|
-| **Playwright の操作系**（`click` / `type` / `fill_form` / `press_key`） | `browser_navigate` に接続先の制限が無いため、`navigate` → `snapshot` → `fill_form` → `click` の連鎖で外部ドメインのフォームへ送信できる。`WebFetch(domain:...)` のドメイン制限を迂回する経路になる。**ブラウザでの動作確認は検証節が必須と定める手段**のため残している |
+| **Playwright の操作系**（`click` / `type` / `fill_form` / `press_key`） | `browser_navigate` に接続先の制限が無いため、`navigate` → `snapshot` → `fill_form` → `click` の連鎖で外部ドメインのフォームへ送信できる。`WebFetch(domain:...)` のドメイン制限を迂回する経路になる。**ブラウザでの動作確認は [verification.md](./verification.md) が必須と定める手段**のため残している |
 | **`npm test` / `npm run build` / `npm run dev` / `npm run preview`** | 実体は配布先の `package.json` の `scripts` であり、**テンプレート側では中身を検証できない**。これらを allow に置くことは「配布先のスクリプト定義を信頼する」という宣言にあたる |
 | **`Read(//tmp/claude/**)`** | この端末上の全プロジェクト・全セッションのスクラッチパッドを横断できる。セッション ID は実行時に決まるため、パターンでは絞れない |
 | **`Bash(git <サブコマンド> *)` 形式全般** | `git merge *` 等に残る。`--autostash` のように「git が止めてくれる」前提を崩すフラグが今後見つかる可能性がある |
 
-**除外した `PowerShell(Stop-Process *)` は非対称な扱いになっている。** セッション終了時のサーバー停止は検証節が定める定型作業なのに、その手前に承認ゲートが無い——「手順が確実に叩くものは allow に入れる」に照らせば allow に入るべきだが、`-Force` で任意プロセスを強制終了できるため外した。`npm run dev` に与えた「手順が優先する」という救済をここには与えていない。**判断が割れる論点として記録しておく。**
+**除外した `PowerShell(Stop-Process *)` は非対称な扱いになっている。** セッション終了時のサーバー停止は [verification.md](./verification.md) が定める定型作業なのに、その手前に承認ゲートが無い——「手順が確実に叩くものは allow に入れる」に照らせば allow に入るべきだが、`-Force` で任意プロセスを強制終了できるため外した。`npm run dev` に与えた「手順が優先する」という救済をここには与えていない。**判断が割れる論点として記録しておく。**
 
 ### この設計を見直すとき
 
